@@ -3,3 +3,4 @@ Code accompanying the article: “An atlas of transcriptional dynamics in matern
 
 The folders contain scripts with code for the main analyses presented in the paper. Data specific scripts are not included. Paths have been cleared. 
 
+The shiny that allows you to interactively explore the dynamic change in gene expression over pregnancy for all analyzed transcripts is available at https://frehed.shinyapps.io/shinyapp/
