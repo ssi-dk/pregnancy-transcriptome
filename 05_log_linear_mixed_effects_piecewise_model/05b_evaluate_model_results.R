@@ -6,41 +6,45 @@
 # DESCRIPTION: This script evaluates which genes have been found
 # to be significant from the lme models
 #
-# Author: Freja Dahl Hede, FREH@ssi.dk
+# Author: Freja Dahl Hede, FREH@dksund.dk
 #************************************
-
-# OBS: Needed: module load openssl/1.1.1s
 
 # Imports and initialization
 #-------------------------------------------------------------------------------
 # Libraries
+#if (!requireNamespace("BiocManager", quietly = TRUE))
+#  install.packages("BiocManager")
+#BiocManager::install("rtracklayer")
 library(rtracklayer)
 suppressMessages(library(tidyverse))
 
 
-# Path
-path <- '/PATH/data/'
+# Call projects paths
+source("PROJECT_PATH/scripts/paths.R")
+
+# Functions
+source(file.path(path_project, "scripts", "functions_wrangling.R"))
 
 # Load model p values for each gene
-pvalues_b1 <- read.table(file = paste0(path, "05_log_linear_mixed_effects_piecewise_model/model_pvalues_b1.tsv"), as.is = TRUE, header = TRUE)
-pvalues_b2 <- read.table(file = paste0(path, "05_log_linear_mixed_effects_piecewise_model/model_pvalues_b2.tsv"), as.is = TRUE, header = TRUE)
-pvalues_combined <- read.table(file = paste0(path, "05_log_linear_mixed_effects_piecewise_model/model_pvalues_combined_no_batch.tsv"), as.is = TRUE, header = TRUE)
+pvalues_b1 <- read.table(file = file.path(path_data, "05_log_linear_mixed_effects_piecewise_model", "model_pvalues_b1.tsv"), as.is = TRUE, header = TRUE)
+pvalues_b2 <- read.table(file = file.path(path_data, "05_log_linear_mixed_effects_piecewise_model", "model_pvalues_b2.tsv"), as.is = TRUE, header = TRUE)
+pvalues_combined <- read.table(file = file.path(path_data, "05_log_linear_mixed_effects_piecewise_model", "model_pvalues_combined_no_batch.tsv"), as.is = TRUE, header = TRUE)
 
 # Load model coeffecients for each gene
-model_coef_b1 <- read.table(file = paste0(path, "05_log_linear_mixed_effects_piecewise_model/model_coef_b1.tsv"), as.is = TRUE, header = TRUE, sep = "\t")
-model_coef_b2 <- read.table(file = paste0(path, "05_log_linear_mixed_effects_piecewise_model/model_coef_b2.tsv"), as.is = TRUE, header = TRUE, sep = "\t")
-model_coef_combined <- read.table(file = paste0(path, "05_log_linear_mixed_effects_piecewise_model/model_coef_combined_no_batch.tsv"), as.is = TRUE, header = TRUE, sep = "\t")
+model_coef_b1 <- read.table(file = file.path(path_data, "05_log_linear_mixed_effects_piecewise_model", "model_coef_b1.tsv"), as.is = TRUE, header = TRUE, sep = "\t")
+model_coef_b2 <- read.table(file = file.path(path_data, "05_log_linear_mixed_effects_piecewise_model", "model_coef_b2.tsv"), as.is = TRUE, header = TRUE, sep = "\t")
+model_coef_combined <- read.table(file = file.path(path_data, "05_log_linear_mixed_effects_piecewise_model", "model_coef_combined_no_batch.tsv"), as.is = TRUE, header = TRUE, sep = "\t")
 
 # Gencode v28 primary assembly GTF for gene symbol
-gencode_gtf <- rtracklayer::import("/PATH/reference/gencode.v28.primary_assembly.annotation.gtf")
+gencode_gtf <- rtracklayer::import("PROJECT_PATH/reference/gencode.v28.primary_assembly.annotation.gtf")
 
 # Wrangling gtf 
 #-------------------------------------------------------------------------------
 # Obtain ENSG and gene symbol/id from gtf file
 ENSG_gene_symbol <- gencode_gtf %>% 
   as.data.frame() %>%
-  select(gene_id, gene_name) %>%
-  rename(gene = gene_id) %>%
+  select(gene_id, gene_name) %>% 
+  dplyr::rename(gene = gene_id) %>%
   unique()
 
 # Statistics
@@ -58,25 +62,25 @@ pvalues_combined_bonferroni_sig <- pvalues_combined %>%
 # The replicated confirmed genes of significant discovery
 confirmed_sig_genes <- pvalues_b2_bonferroni_sig %>%
   inner_join(pvalues_b1_bonferroni_sig, by = "gene") %>% 
-  rename(pvalue_discovery = pvalue.x,
+  dplyr::rename(pvalue_discovery = pvalue.x,
          pvalue_replication = pvalue.y)
 
 # Make final table of significant genes
 most_sig_genes <- confirmed_sig_genes %>%
   #inner_join(pvalues_combined_bonferroni_sig, by = "gene") %>% 
   inner_join(pvalues_combined, by = "gene") %>% #  We are essentially not checking if they are significant in combined, but as it has to be lower than the sig. p-values later it will be the case nontheless
-  rename(pvalue_combined = pvalue) %>% 
+  dplyr::rename(pvalue_combined = pvalue) %>% 
   select(-contains("singularity")) %>%
   arrange(pvalue_combined) %>% 
   left_join(ENSG_gene_symbol, by = "gene") 
 
 # Make final table all p values and gene names 
 all_pvalues_ENSG <- pvalues_b2 %>%
-  rename(pvalue_discovery = pvalue) %>%
+  dplyr::rename(pvalue_discovery = pvalue) %>%
   full_join(pvalues_b1, by = "gene") %>%
-  rename(pvalue_replication = pvalue) %>%
+  dplyr::rename(pvalue_replication = pvalue) %>%
   full_join(pvalues_combined, by = "gene") %>%
-  rename(pvalue_combined = pvalue) %>%
+  dplyr::rename(pvalue_combined = pvalue) %>%
   select(-contains("singularity")) %>%
   arrange(pvalue_combined) %>% 
   left_join(ENSG_gene_symbol, by = "gene")
@@ -118,7 +122,6 @@ confirmed_sig_genes %>%
 
 print("Median of p value in entire discovery batch")
 print(median(pull(pvalues_b2, pvalue)))
-
 # Evaluate significance criteria - do any genes have higher combined p-values than discovery and rep?
 #-------------------------------------------------------------------------------
 # Count how many genes this is the case for
@@ -128,6 +131,52 @@ n_genes_soft_threshold <- most_sig_genes %>%
 print("Number of genes removed with hard threshold (i.e. require that combined model p value is lower than for separate batches), i.e. the number of genes that will be filtered out with the more conservative threshold")
 print(nrow(n_genes_soft_threshold))
 print(n_genes_soft_threshold)
+
+
+# Look into plot of example genes
+#example_soft_thredshold_genes <- c("ENSG00000135218.17", "ENSG00000173559.12", "ENSG00000038427.15")
+example_soft_thredshold_genes <- c("ENSG00000104447.12", "ENSG00000171791.12", "ENSG00000038427.15")
+
+# Wrangle data for plots
+replication_coef <- model_coef_b1 %>%
+    mutate(model = "Replication")
+
+discovery_coef <- model_coef_b2 %>%
+    mutate(model = "Discovery")
+
+combined_coef <- model_coef_combined %>%
+    mutate(model = "Combined")
+
+model_estimates_soft_thresholds <- replication_coef %>%
+    bind_rows(discovery_coef) %>%
+    bind_rows(combined_coef) %>%
+    filter(gene %in% example_soft_thredshold_genes) %>% 
+    filter(coef_effect != "(Intercept)", coef_effect != "log(lib_size)", coef_effect != "norm_factor", coef_effect != "log(ribo_fraction)") %>%
+    mutate(
+      week_number = case_when(coef_effect == "ga_week_adjwfirst" ~ 4,
+                              coef_effect != "ga_week_adjwfirst" ~ as.numeric(gsub("[^0-9]", "", coef_effect))) - 1,
+      week_end = case_when(coef_effect == "ga_week_adjwfirst" ~ 7,
+                           coef_effect != "ga_week_adjwfirst" ~ as.numeric(gsub("[^0-9]", "", coef_effect)))
+    ) %>%
+    left_join(most_sig_genes, by = "gene") %>%
+    mutate(gene_pvalue = paste0(gene, "\nr: ", as.character(pvalue_replication), "\nd: ", as.character(pvalue_discovery), "\nc: ", as.character(pvalue_combined)))
+
+
+fold_change_plots <- model_estimates_soft_thresholds %>%
+ggplot() +
+  geom_segment(aes(x = week_number, xend = week_end, y = Estimate, yend = Estimate, color = model), linewidth = 2) +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  scale_color_manual(values = c("Replication" = "blue", "Discovery" = "red", "Combined" = "green")) +
+  theme_bw() +
+  labs(x = "Pregnancy week", y = "Log(fold change) to PP level") +
+  theme(plot.title = element_text(size = 20),
+        axis.text = element_text(size = 15),
+        axis.title = element_text(size = 14), 
+        legend.position = "bottom",
+        legend.title = element_blank(), 
+        legend.text = element_text(size = 14)) +
+  facet_wrap(~gene_pvalue, ncol = length(example_soft_thredshold_genes))
+
 
 
 # Make final data
@@ -144,9 +193,16 @@ confirmed_sig_genes %>%
 
 # Output data
 #-------------------------------------------------------------------------------
+# Save plots
+png(file.path(path_results, "05_log_linear_mixed_effects_piecewise_model", "LogFoldChange_soft_thredshold_plots.png"))
+print(fold_change_plots)
+dev.off() 
+
 # Result files
-write.table(x = confirmed_sig_genes, file = paste0(path, "05_log_linear_mixed_effects_piecewise_model/replicated_significant_genes_and_p_values.tsv"), quote = FALSE, sep = "\t")
-write.table(x = most_sig_genes, file = paste0(path, "05_log_linear_mixed_effects_piecewise_model/significant_genes_table.tsv"), quote = FALSE, sep = "\t")
-write.table(x = all_pvalues_ENSG, file = paste0(path, "05_log_linear_mixed_effects_piecewise_model/all_pvalues_with_gene_name.tsv"), quote = FALSE, sep = "\t")
+write.table(x = confirmed_sig_genes, file = file.path(path_results, "05_log_linear_mixed_effects_piecewise_model", "replicated_significant_genes_and_p_values.tsv"), quote = FALSE, sep = "\t")
+write.table(x = most_sig_genes, file = file.path(path_results, "05_log_linear_mixed_effects_piecewise_model", "significant_genes_table.tsv"), quote = FALSE, sep = "\t")
+write.table(x = all_pvalues_ENSG, file = file.path(path_results, "05_log_linear_mixed_effects_piecewise_model", "all_pvalues_with_gene_name.tsv"), quote = FALSE, sep = "\t")
 
-
+# Session info
+#-------------------------------------------------------------------------------
+save_session_info(file.path(path_data, "05_log_linear_mixed_effects_piecewise_model", "session_info", "05b_session_info.txt"))
