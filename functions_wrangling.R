@@ -3,8 +3,7 @@
 #************************************
 # FUNCTIONS
 #
-# DESCRIPTION: Functions primarily for
-# different operation of data wrangling
+# DESCRIPTION: Functions primarily for different operation of data wrangling
 # called by other scripts in project
 #
 # Author: Freja Dahl Hede, FREH@ssi.dk
@@ -14,9 +13,24 @@
 #-------------------------------------------------------------------------------
 # Libraries
 library(tidyverse)
+library(sessioninfo)
 
-# Calculate mapping summaries (NB: these scripts are not included, but calculations
-# are seen below)
+
+# Function to write sessioninfo of a script
+#-------------------------------------------------------------------------------
+save_session_info <- function(path) {
+  dir.create(dirname(path), recursive = TRUE, showWarnings = FALSE)
+  
+  con <- file(path, open = "wt")
+  on.exit(close(con))
+  
+  writeLines(
+    capture.output(sessioninfo::session_info(pkgs = "loaded")),
+    con
+  )
+}
+
+# Calculate mapping summaries
 #-------------------------------------------------------------------------------
 # Given count data, this function calculates additional summaries
 # based on total number of mapped reads, unmapped reads, feature mapped reads etc.
@@ -45,6 +59,38 @@ remove_ribo_transcripts <- function(counts, ribo_genes_df){
   return(counts_no_ribo)
 }
 
+# Removes genes of low expression from count data with edgeR's filterByExpr()
+# based on a grouping the samples where one group consists of all "pre partum"
+# samples, i.e. samples taken before the women gave birth, and the second group
+# the post partum samples, i.e. the samples taken after the women gave birth
+remove_lowly_expressed_genes_edgeR <- function(counts, design){
+  
+  # Make DGElist object with edgeR
+  y = DGEList(counts = counts)
+  
+  # Make group according to whether the sample is pregnant or not pregnant (pre vs. post partum)
+  ga_week_adj <- select(design, sample, ga_week_adj)
+  
+  group <- data.frame(sample = colnames(counts)[2:length(colnames(counts))]) %>%
+    left_join(ga_week_adj, by = "sample") %>%
+    mutate(week_binary = case_when(ga_week_adj == "pp" ~ 1, # Basically pregnant or not
+                                   ga_week_adj != "pp" ~ 2)) %>%
+    pull(week_binary) %>%
+    factor()
+  
+  # Obtain genes that are not of low expression with edgeR
+  keep <- filterByExpr(y, group = group)
+  
+  # Update object
+  y <- y[keep, , keep.lib.sizes=FALSE]
+  
+  # Update counts to keep only genes of adequate expression
+  counts_no_low_exprs <- counts %>%
+    right_join(y$genes, by = "gene")
+  
+  return(counts_no_low_exprs)
+  
+}
 
 # Removes genes of low expression from counts data using the definition that
 # considers only genes with a CPM > 0.5 in more than two samples in at least
@@ -86,6 +132,59 @@ remove_lowly_expressed_genes_manual <- function(counts, design, n_min){
   
 }
 
+# Creates a test to compare a genes association to the ribo ratio (number of
+# reads mapped to ribo transcript over number of total mapped genes per sample)
+# to create a proxy for ribo association. It then removes the genes which have
+# a low (<1) test statistic from the count data (inspired by org. code from
+# Line Skotte)
+remove_ribo_associated_genes <- function(counts, design, output_path){
+  
+  # Extract meta data only for samples in count data and correct order to follow count data
+  design_selected <- data.frame(sample = colnames(select(counts, -gene))) %>%
+    left_join(design, by = "sample")
+  rownames(design_selected) <- design_selected$sample
+  
+  # Reformat data
+  counts_with_names <- counts %>%
+    column_to_rownames(var = "gene")
+  counts_norm_by_feature_2 <- t(t(counts_with_names)/design_selected$N_feature) # Note: possibly like this because we reordered design with design_selected
+  
+  ribo_test <- sapply(X = 1:(nrow(counts_norm_by_feature_2)),
+                      FUN = function(i){
+                        summary(lm(counts_norm_by_feature_2[i,] ~ design_selected$N_ribo/design_selected$N_mapped))$coef[2,3:4] # Extract test and p-value for N_ribo coeffecients
+                        # Note: returns coefficients for both N_ribo and interaction between N_ribo and N_mapped, we want N_ribo to get the estimated change of this when
+                        # N_mapped is held constant
+                      }
+  )
+  
+  # Reformat data
+  colnames(ribo_test) <- rownames(counts)
+  rownames(ribo_test) <- c("t-value", "p-value")
+  ribo_test_t <- t(ribo_test)
+  
+  # Keep only genes with test statistics less than 1
+  keep <- (ribo_test_t[,1]<1)
+  keep_genes <- data.frame(gene = pull(counts, gene)[keep])
+  
+  # Write file with ribo associate genes and make qqplot of p-values
+  ribo_asso_genes <- data.frame(gene = pull(counts, gene)[!keep])
+  
+  write.table(x = ribo_asso_genes,
+              file = paste0(output_path, "ribo_associated_genes.tsv"),
+              row.names = FALSE, quote = FALSE, sep = "\t")
+  
+  png(file = paste0(output_path, "qqplot_ribo_asso_p_value.png"))
+  qqp(ribo_test_t[,2], ci=FALSE)
+  dev.off()
+  
+  # Update counts
+  counts_no_ribo_asso <- counts %>%
+    right_join(keep_genes, by = "gene")
+  
+  return(counts_no_ribo_asso)
+  
+}
+
 
 
 # Function for gene count normalization. Uses a linear model to estimate the effect
@@ -95,7 +194,7 @@ remove_lowly_expressed_genes_manual <- function(counts, design, n_min){
 extract_gene_count_residuals <- function(gene_number, counts, design){
   
   # Extract relevant data from design
-  design_needed <- design_data %>%
+  design_needed <- design %>%
     select(sample, id, ribo_fraction, lib_size, norm_factor) %>%
     mutate(id = as.factor(id),
            id = forcats::fct_inorder(id)) # Just one instance
