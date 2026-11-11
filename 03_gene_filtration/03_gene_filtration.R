@@ -5,8 +5,7 @@
 #
 # DESCRIPTION: This scripts filters our count data to remove lowly
 # expressed genes and ribosomal genes according to database and
-# genes correlates to ribosomal genes, updated version with separate
-# batch analysis and PCA plot generation
+# genes correlates to ribosomal genes.
 #
 # Author: Freja Dahl Hede, FREH@ssi.dk
 #************************************
@@ -18,25 +17,25 @@ library(tidyverse)
 library(edgeR)
 library(ggfortify)
 
-# Functions
-source('/PATH/scripts/functions_wrangling.R')
-source('/PATH/scripts/functions_plotting.R')
+# Call projects paths
+source("PROJECT_PATH/scripts/paths.R")
 
-# Path
-path <- '/PATH/data/'
+# Functions
+source(file.path(path_project, "scripts", "functions_wrangling.R"))
+source(file.path(path_project, "scripts", "functions_plotting.R"))
 
 # Reference with ribosomal RNAs
-ribo <- read.table(file = paste0(path, "00_input_data/gencode.v28.primary_assembly.annotation.rRNAs.txt"), as.is = TRUE, header = FALSE)[,1]
+ribo <- read.table(file = file.path(path_input, "gencode.v28.primary_assembly.annotation.rRNAs.txt"), as.is = TRUE, header = FALSE)[,1]
 
 # (Wrangled/cleaned) count files
-counts_b1 <- read.table(file = paste0(path, "01_data_wrangling/b1_clean_counts.tsv"), as.is = TRUE, header = TRUE, row.names = 1)
-counts_b2 <- read.table(file = paste0(path, "01_data_wrangling/b2_clean_counts.tsv"), as.is = TRUE, header = TRUE, row.names = 1)
+counts_b1 <- read.table(file = file.path(path_data, "01_data_wrangling", "b1_clean_counts.tsv"), as.is = TRUE, header = TRUE, row.names = 1)
+counts_b2 <- read.table(file = file.path(path_data, "01_data_wrangling", "b2_clean_counts.tsv"), as.is = TRUE, header = TRUE, row.names = 1)
 
 # Design (keys with meta data)
-design_data <- read.table(file = paste0(path, "02_mapping_summaries/design_data_v2.tsv"), as.is = TRUE, header = TRUE)
+design_data <- read.table(file = file.path(path_data, "02_mapping_summaries", "design_data_with_mapping_summaries.tsv"), as.is = TRUE, header = TRUE)
 
 # Create output file with filtration stats
-outputFileFiltration <- file(paste0(path, "03_gene_filtration/n_genes_removed_during_filtration.txt"))
+outputFileFiltration <- file(file.path(path_results, "03_gene_filtration", "n_genes_removed_during_filtration.txt"))
 
 
 # Data wrangling
@@ -49,7 +48,6 @@ counts_both <- counts_b1 %>%
   select(gene, everything())
 
 ribo_genes <- data.frame(ribo_genes = ribo[ribo%in%pull(counts_both, gene)])
-
 
 
 # Data filtration
@@ -71,7 +69,7 @@ for (batch_number in c(1,2)){
   
   # Make and save PCA plot before any filtration
   pca_plot_no_filtration <- make_PCA_plot(counts_batch, design_batch, 'library')
-  png(paste0(path, "03_gene_filtration/PCA_before_any_filtration_b", as.character(batch_number), ".png"))
+  png(paste0(path_results, "/03_gene_filtration/PCA_before_any_filtration_b", as.character(batch_number), ".png"))
   print(pca_plot_no_filtration)
   dev.off()
   
@@ -80,7 +78,7 @@ for (batch_number in c(1,2)){
     mutate("Ribo_class" = cut_number(ribo_fraction, n = 3, labels = c("low", "medium", "high")))
   
   pca_plot_no_filtration_ribo <- make_PCA_plot(counts_batch, design_ribo, 'Ribo_class')
-  png(paste0(path, "03_gene_filtration/PCA_before_any_filtration_ribo_color_b", as.character(batch_number), ".png"))
+  png(paste0(path_results, "/03_gene_filtration/PCA_before_any_filtration_ribo_color_b", as.character(batch_number), ".png"))
   print(pca_plot_no_filtration_ribo)
   dev.off()
   
@@ -99,18 +97,18 @@ for (batch_number in c(1,2)){
   genes_removed_ribo <- counts_batch %>% 
     anti_join(counts_no_ribo, by = "gene") %>%
     select(gene) 
-  write.table(x = genes_removed_ribo, file = paste0(path, "03_gene_filtration/genes_removed_during_ribo_transcript_filtration_b", batch_number, ".tsv"), quote = FALSE, row.names = FALSE)
+  write.table(x = genes_removed_ribo, file = paste0(path_data, "/03_gene_filtration/genes_removed_during_ribo_transcript_filtration_b", batch_number, ".tsv"), quote = FALSE, row.names = FALSE)
 
 
   # Make and save PCA plot
   pca_plot_ribo_transcripts <- make_PCA_plot(counts_no_ribo, design_batch, 'library')
-  png(paste0(path, "03_gene_filtration/PCA_after_removal_of_ribo_transcripts_b", as.character(batch_number), ".png"))
+  png(paste0(path_results, "/03_gene_filtration/PCA_after_removal_of_ribo_transcripts_b", as.character(batch_number), ".png"))
   print(pca_plot_ribo_transcripts)
   dev.off()
   
   # Make and save PCA plot colored according to ribo
   pca_plot_ribo_transcripts_ribo <- make_PCA_plot(counts_no_ribo, design_ribo, 'Ribo_class')
-  png(paste0(path, "03_gene_filtration/PCA_after_removal_of_ribo_transcripts_ribo_color_b", as.character(batch_number), ".png"))
+  png(paste0(path_results, "/03_gene_filtration/PCA_after_removal_of_ribo_transcripts_ribo_color_b", as.character(batch_number), ".png"))
   print(pca_plot_ribo_transcripts_ribo)
   dev.off()
   
@@ -131,14 +129,13 @@ for (batch_number in c(1,2)){
   genes_removed_low_expr <- counts_no_ribo %>% 
     anti_join(counts_no_ribo_low_expr, by = "gene") %>%
     select(gene) 
-  write.table(x = genes_removed_low_expr, file = paste0(path, "03_gene_filtration/genes_removed_during_low_expression_filtration_b", batch_number, ".tsv"), quote = FALSE, row.names = FALSE)
+  write.table(x = genes_removed_low_expr, file = paste0(path_data, "/03_gene_filtration/genes_removed_during_low_expression_filtration_b", batch_number, ".tsv"), quote = FALSE, row.names = FALSE)
 
   # Make and save PCA plots
   pca_plot_after_low_genes <- make_PCA_plot(counts_no_ribo_low_expr, design_batch, 'library')
-  png(paste0(path, "03_gene_filtration/PCA_after_low_genes_removal_b", as.character(batch_number), ".png"))
+  png(paste0(path_results, "/03_gene_filtration/PCA_after_low_genes_removal_b", as.character(batch_number), ".png"))
   print(pca_plot_after_low_genes)
   dev.off()
-  
   
   # Extract final genes
   assign(paste0("batch_", as.character(batch_number), "_genes"), pull(counts_no_ribo_low_expr, gene))
@@ -152,7 +149,7 @@ counts_filtered_b1 <- counts_b1 %>%
   select(-gene)
 
 counts_filtered_b2 <- counts_b2 %>%
-  mutate(gene = rownames(counts_b1)) %>%
+  mutate(gene = rownames(counts_b2)) %>%
   filter(gene %in% batch_2_genes) %>%
   select(-gene)
 
@@ -164,7 +161,10 @@ writeLines(status, con = outputFileFiltration)
 close(outputFileFiltration)
 
 # Writing cleaned counts files
-write.table(x = counts_filtered_b1, file = paste0(path, "03_gene_filtration/b1_filtered_counts.tsv"), row.names = TRUE, quote = FALSE, sep = "\t")
-write.table(x = counts_filtered_b2, file = paste0(path, "03_gene_filtration/b2_filtered_counts.tsv"), row.names = TRUE, quote = FALSE, sep = "\t")
+write.table(x = counts_filtered_b1, file = file.path(path_data, "03_gene_filtration", "b1_filtered_counts.tsv"), row.names = TRUE, quote = FALSE, sep = "\t")
+write.table(x = counts_filtered_b2, file = file.path(path_data, "03_gene_filtration", "b2_filtered_counts.tsv"), row.names = TRUE, quote = FALSE, sep = "\t")
 
 
+# Session info
+#-------------------------------------------------------------------------------
+save_session_info(file.path(path_data, "03_gene_filtration", "session_info", "03_session_info.txt"))
